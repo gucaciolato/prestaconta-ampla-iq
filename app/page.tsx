@@ -181,13 +181,13 @@ export default function Home() {
                   <strong>Endereço:</strong> Rua Ismael Benedito de Camargo, 583 - Centro - Platina/SP
                 </li>
                 <li>
-                  <strong>Telefone:</strong> (18) 3354-1181
+                  <strong>Telefone:</strong> (18) 3354-1133
                 </li>
                 <li>
                   <strong>Email:</strong> aampla@gmail.com
                 </li>
                 <li>
-                  <strong>Horário de Funcionamento:</strong> Segunda a Sexta: 8h às 17h
+                  <strong>Horário de Funcionamento:</strong> Segunda a Sexta: 7h às 17h
                 </li>
               </ul>
             </div>
