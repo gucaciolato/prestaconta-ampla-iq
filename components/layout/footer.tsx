@@ -18,9 +18,9 @@ export default function Footer() {
             <address className="not-italic text-sm text-gray-600 text-center md:text-left">
               <p>Rua Ismael Benedito de Camargo, 583</p>
               <p>Centro - Platina/SP</p>
-              <p className="mt-2">(18) 3354-1181</p>
+              <p className="mt-2">(18) 3354-1133</p>
               <p>aampla@gmail.com</p>
-              <p className="mt-2">Segunda a Sexta: 8h às 17h</p>
+              <p className="mt-2">Segunda a Sexta: 7h às 17h</p>
             </address>
           </div>
 
