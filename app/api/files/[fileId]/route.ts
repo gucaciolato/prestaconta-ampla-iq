@@ -3,9 +3,11 @@ import { getFileById } from "@/lib/gridfs-service"
 
 export async function GET(request: NextRequest, { params }: { params: { fileId: string } }) {
   try {
-    console.log(`[FILES] Solicitação de arquivo: ${params.fileId}`)
+    // Await the params object first
+    const { fileId } = await params
+    
+    console.log(`[FILES] Solicitação de arquivo: ${fileId}`)
 
-    const fileId = params.fileId
     if (!fileId) {
       console.error("[FILES] ID do arquivo não fornecido")
       return NextResponse.json({ error: "ID do arquivo não fornecido" }, { status: 400 })

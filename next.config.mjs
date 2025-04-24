@@ -11,15 +11,25 @@ const nextConfig = {
     domains: ['localhost', 'ampla.prestaconta.com.br'],
     unoptimized: true,
   },
+  serverExternalPackages: [
+    'mongodb',
+    '@napi-rs/snappy-linux-x64-gnu',
+    '@napi-rs/snappy-linux-x64-musl',
+    'minio',
+    'bcryptjs',
+    'jsonwebtoken',
+    'crypto',
+    'fs',
+    'path',
+    'stream',
+    'util',
+    'jose',
+    'url',
+    'nodemailer',
+    '@auth/core',
+    'next-auth'
+  ],
   experimental: {
-    serverComponentsExternalPackages: [
-      'mongodb',
-      '@napi-rs/snappy-linux-x64-gnu',
-      '@napi-rs/snappy-linux-x64-musl',
-      'minio',
-      'bcryptjs',
-      'jsonwebtoken',
-    ],
   },
   webpack: (config) => {
     // Configuração para evitar erros com módulos binários no cliente

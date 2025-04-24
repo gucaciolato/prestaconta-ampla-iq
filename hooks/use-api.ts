@@ -26,9 +26,17 @@ export async function uploadFile(file: File) {
     if (!response.ok) {
       let errorMessage = `Erro ${response.status}: ${response.statusText}`
       try {
-        const errorData = await response.json()
-        console.error(`[API] Erro detalhado: ${JSON.stringify(errorData)}`)
-        errorMessage = errorData.error || errorMessage
+        const contentType = response.headers.get("content-type") || ""
+        if (contentType.includes("application/json")) {
+          const errorData = await response.json()
+          console.error(`[API] Erro detalhado: ${JSON.stringify(errorData)}`)
+          errorMessage = errorData.error || errorMessage
+        } else {
+          // Lidar com resposta não-JSON
+          const textResponse = await response.text()
+          console.error(`[API] Resposta não-JSON recebida: ${textResponse.substring(0, 200)}...`)
+          errorMessage = `Erro ${response.status}: Resposta não é um JSON válido`
+        }
       } catch (e) {
         console.error("[API] Não foi possível obter detalhes do erro:", e)
       }
@@ -81,19 +89,35 @@ export function useApi<T>(url: string, options?: FetchOptions) {
         body: options?.body ? JSON.stringify(options.body) : undefined,
       })
 
-      console.log(`[API] Resposta recebida: status ${response.status}`)
+      console.log(`[API] Resposta recebida: status ${response.status}, content-type: ${response.headers.get("content-type")}`)
 
       if (!response.ok) {
         let errorMessage = `Erro ${response.status}: ${response.statusText}`
         try {
-          const errorData = await response.json()
-          console.error(`[API] Erro detalhado: ${JSON.stringify(errorData)}`)
-          errorMessage = errorData.error || errorMessage
+          const contentType = response.headers.get("content-type") || ""
+          if (contentType.includes("application/json")) {
+            const errorData = await response.json()
+            console.error(`[API] Erro detalhado: ${JSON.stringify(errorData)}`)
+            errorMessage = errorData.error || errorMessage
+          } else {
+            // Lidar com resposta não-JSON
+            const textResponse = await response.text()
+            console.error(`[API] Resposta não-JSON recebida: ${textResponse.substring(0, 200)}...`)
+            errorMessage = `Erro ${response.status}: Resposta não é um JSON válido`
+          }
         } catch (e) {
           console.error("[API] Não foi possível obter detalhes do erro:", e)
         }
 
         throw new Error(errorMessage)
+      }
+
+      // Verificar se a resposta é realmente JSON antes de tentar fazer parse
+      const contentType = response.headers.get("content-type") || ""
+      if (!contentType.includes("application/json")) {
+        const textResponse = await response.text()
+        console.error(`[API] Recebeu resposta não-JSON: ${textResponse.substring(0, 200)}...`)
+        throw new Error("A API retornou um formato inesperado (não-JSON)")
       }
 
       const result = await response.json()
@@ -133,19 +157,35 @@ export function useApi<T>(url: string, options?: FetchOptions) {
           body: mergedOptions?.body ? JSON.stringify(mergedOptions.body) : undefined,
         })
 
-        console.log(`[API] Resposta de mutação recebida: status ${response.status}`)
+        console.log(`[API] Resposta de mutação recebida: status ${response.status}, content-type: ${response.headers.get("content-type")}`)
 
         if (!response.ok) {
           let errorMessage = `Erro ${response.status}: ${response.statusText}`
           try {
-            const errorData = await response.json()
-            console.error(`[API] Erro detalhado: ${JSON.stringify(errorData)}`)
-            errorMessage = errorData.error || errorMessage
+            const contentType = response.headers.get("content-type") || ""
+            if (contentType.includes("application/json")) {
+              const errorData = await response.json()
+              console.error(`[API] Erro detalhado: ${JSON.stringify(errorData)}`)
+              errorMessage = errorData.error || errorMessage
+            } else {
+              // Lidar com resposta não-JSON
+              const textResponse = await response.text()
+              console.error(`[API] Resposta não-JSON recebida: ${textResponse.substring(0, 200)}...`)
+              errorMessage = `Erro ${response.status}: Resposta não é um JSON válido`
+            }
           } catch (e) {
             console.error("[API] Não foi possível obter detalhes do erro:", e)
           }
 
           throw new Error(errorMessage)
+        }
+
+        // Verificar se a resposta é realmente JSON antes de tentar fazer parse
+        const contentType = response.headers.get("content-type") || ""
+        if (!contentType.includes("application/json")) {
+          const textResponse = await response.text()
+          console.error(`[API] Recebeu resposta não-JSON: ${textResponse.substring(0, 200)}...`)
+          throw new Error("A API retornou um formato inesperado (não-JSON)")
         }
 
         const result = await response.json()

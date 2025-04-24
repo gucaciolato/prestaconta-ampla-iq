@@ -4,6 +4,15 @@ import type { NextRequest } from "next/server"
 // Rotas que requerem autenticação
 const protectedRoutes = [
   "/dashboard",
+]
+
+// API routes que requerem autenticação para todos os métodos
+const protectedApiRoutes = [
+  "/api/usuarios",
+]
+
+// API routes que permitem GET requests sem autenticação
+const apiRoutesWithGetAccess = [
   "/api/avisos",
   "/api/galeria",
   "/api/documentos",
@@ -11,7 +20,6 @@ const protectedRoutes = [
   "/api/relatorios",
   "/api/financeiro",
   "/api/atividades",
-  "/api/usuarios",
 ]
 
 // Mapeamento de papéis para permissões
@@ -70,11 +78,22 @@ async function verifyJWT(token: string) {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
+  const method = request.method
+
+  // Verificar se é uma API request com GET permitido
+  const isApiRouteWithGetAccess = apiRoutesWithGetAccess.some((route) => pathname.startsWith(route))
+  if (isApiRouteWithGetAccess && method === "GET") {
+    // Permitir acesso a GET requests nas APIs listadas
+    return NextResponse.next()
+  }
 
   // Verificar se a rota requer autenticação
   const isProtectedRoute = protectedRoutes.some((route) => pathname.startsWith(route))
+  const isProtectedApiRoute = protectedApiRoutes.some((route) => pathname.startsWith(route))
+  // Outras rotas da API com métodos não-GET também são protegidas
+  const isProtectedNonGetApi = apiRoutesWithGetAccess.some((route) => pathname.startsWith(route)) && method !== "GET"
 
-  if (isProtectedRoute) {
+  if (isProtectedRoute || isProtectedApiRoute || isProtectedNonGetApi) {
     // Obter o token JWT dos cookies
     const token = request.cookies.get("auth-token")?.value
 

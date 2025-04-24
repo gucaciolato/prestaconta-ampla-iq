@@ -21,8 +21,11 @@ export async function PUT(request: NextRequest) {
     const existing = await findOne("diretoria", {})
 
     if (existing) {
+      // Remove _id from data to prevent MongoDB error
+      const { _id, ...updateData } = data
+
       // Update existing document
-      await updateOne("diretoria", { _id: existing._id }, data)
+      await updateOne("diretoria", { _id: existing._id }, updateData)
     } else {
       // Create new document
       await insertOne("diretoria", data)
