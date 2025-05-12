@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { findAll, insertOne } from "@/lib/mongodb-service"
+import { query } from "@/lib/postgres-service"
 
 export async function GET(request: NextRequest) {
   try {
@@ -7,21 +7,25 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const destaque = searchParams.get("destaque")
 
-    let query = {}
+    let queryText = "SELECT * FROM avisos"
+    const queryParams = []
+
     if (destaque === "true") {
-      query = { destaque: true }
+      queryText += " WHERE destaque = true"
     }
 
-    console.log("[AVISOS] Buscando avisos com query:", query)
-    const avisos = await findAll("avisos", query, { dataPublicacao: -1 })
-    console.log(`[AVISOS] Encontrados ${avisos.length} avisos`)
+    queryText += " ORDER BY data_publicacao DESC"
+
+    console.log("[AVISOS] Executando consulta:", queryText)
+    const result = await query(queryText, queryParams)
+    console.log(`[AVISOS] Encontrados ${result.rowCount} avisos`)
 
     // Processar URLs de arquivos se existirem
-    const processedAvisos = avisos.map((aviso: any) => {
-      if (aviso.arquivoId) {
+    const processedAvisos = result.rows.map((aviso) => {
+      if (aviso.arquivo_id) {
         return {
           ...aviso,
-          arquivoUrl: `/api/files/${aviso.arquivoId}`,
+          arquivoUrl: `/api/files/${aviso.arquivo_id}`,
         }
       }
       return aviso
@@ -51,13 +55,48 @@ export async function POST(request: NextRequest) {
       data.dataPublicacao = new Date().toISOString()
     }
 
+    const {
+      titulo,
+      conteudo,
+      periodoInscricao,
+      documentos,
+      dataPublicacao,
+      destaque,
+      imagem,
+      arquivoId,
+      arquivoNome,
+      arquivoTipo,
+      fileId,
+    } = data
+
     console.log("[AVISOS] Salvando aviso no banco de dados")
-    const result = await insertOne("avisos", data)
-    console.log("[AVISOS] Aviso salvo com sucesso:", result.insertedId)
+    const result = await query(
+      `INSERT INTO avisos (
+        titulo, conteudo, periodo_inscricao, documentos, 
+        data_publicacao, destaque, imagem, arquivo_id, 
+        arquivo_nome, arquivo_tipo, file_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id`,
+      [
+        titulo,
+        conteudo,
+        periodoInscricao || null,
+        documentos || null,
+        dataPublicacao,
+        destaque || false,
+        imagem || null,
+        arquivoId || null,
+        arquivoNome || null,
+        arquivoTipo || null,
+        fileId || null,
+      ],
+    )
+
+    console.log("[AVISOS] Aviso salvo com sucesso:", result.rows[0].id)
 
     return NextResponse.json({
       success: true,
-      id: result.insertedId.toString(),
+      id: result.rows[0].id,
     })
   } catch (error) {
     console.error("[AVISOS] Erro ao criar aviso:", error)

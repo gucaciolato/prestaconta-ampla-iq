@@ -1,40 +1,38 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { findOne, deleteOne, toObjectId } from "@/lib/mongodb-service"
-import { deleteFileById } from "@/lib/gridfs-service"
+import { query } from "@/lib/postgres-service"
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const id = params.id
+    const id = Number.parseInt(params.id)
 
-    // Buscar a atividade para obter os IDs dos arquivos
-    const atividade = await findOne("atividades", { _id: toObjectId(id) })
+    if (isNaN(id)) {
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 })
+    }
 
-    if (!atividade) {
+    // Buscar a atividade para verificar se existe
+    const atividadeResult = await query("SELECT * FROM atividades WHERE id = $1", [id])
+
+    if (atividadeResult.rowCount === 0) {
       return NextResponse.json({ error: "Atividade não encontrada" }, { status: 404 })
     }
 
-    // Excluir arquivos associados
-    if (atividade.fotos && Array.isArray(atividade.fotos)) {
-      for (const foto of atividade.fotos) {
-        if (foto.fileId) {
-          try {
-            await deleteFileById(foto.fileId)
-          } catch (error) {
-            console.error(`Erro ao excluir arquivo ${foto.fileId}:`, error)
-            // Continue mesmo se a exclusão do arquivo falhar
-          }
-        }
-      }
+    // Iniciar transação
+    await query("BEGIN")
+
+    try {
+      // Excluir fotos associadas
+      await query("DELETE FROM atividades_fotos WHERE atividade_id = $1", [id])
+
+      // Excluir a atividade
+      const result = await query("DELETE FROM atividades WHERE id = $1", [id])
+
+      await query("COMMIT")
+
+      return NextResponse.json({ success: true, message: "Atividade excluída com sucesso" })
+    } catch (error) {
+      await query("ROLLBACK")
+      throw error
     }
-
-    // Excluir a atividade
-    const result = await deleteOne("atividades", { _id: toObjectId(id) })
-
-    if (result.deletedCount === 0) {
-      return NextResponse.json({ error: "Atividade não encontrada" }, { status: 404 })
-    }
-
-    return NextResponse.json({ success: true, message: "Atividade excluída com sucesso" })
   } catch (error) {
     console.error("Erro ao excluir atividade:", error)
     return NextResponse.json({ error: "Erro ao excluir atividade" }, { status: 500 })

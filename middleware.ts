@@ -1,18 +1,11 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-// Rotas que requerem autenticação
-const protectedRoutes = [
-  "/dashboard",
-]
+// Rotas que requerem autenticação para todas as operações
+const fullyProtectedRoutes = ["/dashboard", "/api/usuarios"]
 
-// API routes que requerem autenticação para todos os métodos
-const protectedApiRoutes = [
-  "/api/usuarios",
-]
-
-// API routes que permitem GET requests sem autenticação
-const apiRoutesWithGetAccess = [
+// Rotas que permitem acesso público para GET, mas requerem autenticação para outras operações
+const partiallyProtectedRoutes = [
   "/api/avisos",
   "/api/galeria",
   "/api/documentos",
@@ -72,6 +65,7 @@ async function verifyJWT(token: string) {
 
     return JSON.parse(jsonPayload)
   } catch (error) {
+    console.error("Erro ao verificar JWT:", error)
     return null
   }
 }
@@ -80,24 +74,29 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const method = request.method
 
-  // Verificar se é uma API request com GET permitido
-  const isApiRouteWithGetAccess = apiRoutesWithGetAccess.some((route) => pathname.startsWith(route))
-  if (isApiRouteWithGetAccess && method === "GET") {
-    // Permitir acesso a GET requests nas APIs listadas
+  console.log(`[MIDDLEWARE] Processando requisição: ${method} ${pathname}`)
+
+  // Verificar se a rota requer autenticação total
+  const isFullyProtected = fullyProtectedRoutes.some((route) => pathname.startsWith(route))
+
+  // Verificar se a rota requer autenticação parcial (apenas para métodos não-GET)
+  const isPartiallyProtected = partiallyProtectedRoutes.some((route) => pathname.startsWith(route))
+
+  // Permitir acesso público para GET em rotas parcialmente protegidas
+  if (isPartiallyProtected && method === "GET") {
+    console.log(`[MIDDLEWARE] Permitindo acesso público para GET em ${pathname}`)
     return NextResponse.next()
   }
 
   // Verificar se a rota requer autenticação
-  const isProtectedRoute = protectedRoutes.some((route) => pathname.startsWith(route))
-  const isProtectedApiRoute = protectedApiRoutes.some((route) => pathname.startsWith(route))
-  // Outras rotas da API com métodos não-GET também são protegidas
-  const isProtectedNonGetApi = apiRoutesWithGetAccess.some((route) => pathname.startsWith(route)) && method !== "GET"
+  if (isFullyProtected || isPartiallyProtected) {
+    console.log(`[MIDDLEWARE] Rota protegida: ${pathname}, método: ${method}`)
 
-  if (isProtectedRoute || isProtectedApiRoute || isProtectedNonGetApi) {
     // Obter o token JWT dos cookies
     const token = request.cookies.get("auth-token")?.value
 
     if (!token) {
+      console.log(`[MIDDLEWARE] Token não encontrado, redirecionando para login`)
       // Redirecionar para a página de login se não houver token
       const url = new URL("/login", request.url)
       url.searchParams.set("callbackUrl", pathname)
@@ -108,6 +107,7 @@ export async function middleware(request: NextRequest) {
     const payload = await verifyJWT(token)
 
     if (!payload) {
+      console.log(`[MIDDLEWARE] Token inválido, redirecionando para login`)
       // Redirecionar para a página de login se o token for inválido
       const url = new URL("/login", request.url)
       url.searchParams.set("callbackUrl", pathname)
@@ -116,6 +116,7 @@ export async function middleware(request: NextRequest) {
 
     // Verificar se o usuário está ativo
     if (!payload.ativo) {
+      console.log(`[MIDDLEWARE] Usuário inativo, redirecionando para login`)
       // Redirecionar para a página de login se o usuário estiver inativo
       const url = new URL("/login", request.url)
       url.searchParams.set("error", "Usuário inativo")
@@ -124,16 +125,19 @@ export async function middleware(request: NextRequest) {
 
     // Verificar permissões para rotas específicas
     if (pathname.startsWith("/dashboard/usuarios") && !hasPermission(payload.role, "usuarios:manage")) {
+      console.log(`[MIDDLEWARE] Acesso negado para ${pathname}, redirecionando para dashboard`)
       return NextResponse.redirect(new URL("/dashboard", request.url))
     }
 
     if (pathname.startsWith("/dashboard/financeiro") && !hasPermission(payload.role, "financeiro:manage")) {
+      console.log(`[MIDDLEWARE] Acesso negado para ${pathname}, redirecionando para dashboard`)
       return NextResponse.redirect(new URL("/dashboard", request.url))
     }
 
     // Adicione outras verificações de permissão conforme necessário
   }
 
+  console.log(`[MIDDLEWARE] Permitindo acesso para ${pathname}`)
   return NextResponse.next()
 }
 

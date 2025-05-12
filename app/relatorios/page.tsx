@@ -122,13 +122,49 @@ export default function RelatoriosPage() {
     setModalOpen(true)
   }
 
-  const handleDownload = (url: string, filename: string) => {
-    const link = document.createElement("a")
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const handleDownload = async (url: string, filename: string) => {
+    try {
+      console.log(`Iniciando download do arquivo: ${url}, nome: ${filename}`)
+
+      // Garantir que a URL seja válida
+      const fileUrl = ensureValidFileUrl(url)
+      console.log(`URL processada para download: ${fileUrl}`)
+
+      // Método 1: Usando fetch para obter o arquivo e depois criar um blob
+      const response = await fetch(fileUrl)
+
+      if (!response.ok) {
+        throw new Error(`Erro ao baixar arquivo: ${response.status} ${response.statusText}`)
+      }
+
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
+
+      // Criar link de download e simular clique
+      const link = document.createElement("a")
+      link.href = blobUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+
+      // Limpar após o download
+      setTimeout(() => {
+        document.body.removeChild(link)
+        URL.revokeObjectURL(blobUrl)
+      }, 100)
+
+      toast({
+        title: "Download iniciado",
+        description: `O arquivo "${filename}" está sendo baixado.`,
+      })
+    } catch (error) {
+      console.error("Erro ao baixar arquivo:", error)
+      toast({
+        title: "Erro ao baixar arquivo",
+        description: error instanceof Error ? error.message : "Não foi possível baixar o arquivo.",
+        variant: "destructive",
+      })
+    }
   }
 
   if (isLoading) {
@@ -311,13 +347,14 @@ export default function RelatoriosPage() {
             <Button
               variant="outline"
               className="mt-4"
-              onClick={() =>
-                selectedReport &&
-                handleDownload(
-                  ensureValidFileUrl(selectedReport.url),
-                  `${selectedReport.titulo.replace(/\s+/g, "-")}-${selectedReport.ano}-${selectedReport.mes}.pdf`,
-                )
-              }
+              onClick={() => {
+                if (selectedReport) {
+                  const fileUrl = ensureValidFileUrl(selectedReport.url)
+                  const fileName = `${selectedReport.titulo.replace(/\s+/g, "-")}-${selectedReport.ano}-${selectedReport.mes}.pdf`
+                  console.log(`Preparando download: URL=${fileUrl}, Nome=${fileName}`)
+                  handleDownload(fileUrl, fileName)
+                }
+              }}
             >
               <Download className="mr-2 h-4 w-4" /> Baixar Relatório
             </Button>

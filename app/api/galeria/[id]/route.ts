@@ -1,32 +1,27 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { findOne, deleteOne, toObjectId } from "@/lib/mongodb-service"
-import { deleteFileById } from "@/lib/gridfs-service"
+import { query } from "@/lib/postgres-service"
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const id = params.id
+    const id = Number.parseInt(params.id)
+
+    if (isNaN(id)) {
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 })
+    }
 
     // Buscar a imagem para obter o ID do arquivo
-    const imagem = await findOne("galeria", { _id: toObjectId(id) })
+    const imageResult = await query("SELECT * FROM galeria WHERE id = $1", [id])
 
-    if (!imagem) {
+    if (imageResult.rowCount === 0) {
       return NextResponse.json({ error: "Imagem não encontrada" }, { status: 404 })
     }
 
-    // Excluir o arquivo associado
-    if (imagem.fileId) {
-      try {
-        await deleteFileById(imagem.fileId)
-      } catch (error) {
-        console.error(`Erro ao excluir arquivo ${imagem.fileId}:`, error)
-        // Continue mesmo se a exclusão do arquivo falhar
-      }
-    }
+    const imagem = imageResult.rows[0]
 
     // Excluir a imagem
-    const result = await deleteOne("galeria", { _id: toObjectId(id) })
+    const result = await query("DELETE FROM galeria WHERE id = $1", [id])
 
-    if (result.deletedCount === 0) {
+    if (result.rowCount === 0) {
       return NextResponse.json({ error: "Imagem não encontrada" }, { status: 404 })
     }
 

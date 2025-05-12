@@ -3,15 +3,13 @@
 import { cookies } from "next/headers"
 import { SignJWT, jwtVerify } from "jose"
 import { redirect } from "next/navigation"
-import { ObjectId } from "mongodb"
 import type { NextRequest } from "next/server"
 import bcrypt from "bcryptjs"
 import type { UserRole } from "./types"
-import { MongoClient } from "mongodb"
+// Importar o serviço PostgreSQL
+import { query } from "./postgres-service"
 
 const JWT_SECRET = process.env.JWT_SECRET || "seu_segredo_jwt_super_secreto"
-const uri = process.env.MONGODB_URI || ""
-const dbName = process.env.MONGODB_DB || "prestaconta"
 
 export interface UserJwtPayload {
   id: string
@@ -22,91 +20,78 @@ export interface UserJwtPayload {
   ativo: boolean
 }
 
-// Função para autenticar um usuário
+// Função de autenticação adaptada para PostgreSQL
 export async function authenticateUser(username: string, password: string) {
   try {
     console.log(`Auth Service: Tentando autenticar usuário: ${username}`)
-    console.log(`Auth Service: URI: ${uri}`)
-    console.log(`Auth Service: DB: ${dbName}`)
 
-    if (!uri) {
-      console.error("Auth Service: MONGODB_URI não está definido")
+    // Verificar se a tabela existe
+    const tablesResult = await query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'usuarios'
+      )
+    `)
+
+    const tableExists = tablesResult.rows[0].exists
+    if (!tableExists) {
+      console.error("Auth Service: Tabela 'usuarios' não existe")
       return { success: false, message: "Erro de configuração do servidor" }
     }
 
-    const client = new MongoClient(uri)
+    // Buscar o usuário
+    const userResult = await query("SELECT * FROM usuarios WHERE username = $1", [username])
 
-    try {
-      await client.connect()
-      console.log("Auth Service: Conectado ao MongoDB")
+    if (userResult.rowCount === 0) {
+      console.log(`Auth Service: Usuário não encontrado: ${username}`)
+      return { success: false, message: "Usuário não encontrado" }
+    }
 
-      const db = client.db(dbName)
-      const usersCollection = db.collection("usuarios")
+    const user = userResult.rows[0]
+    console.log(`Auth Service: Usuário encontrado: ${username}, role: ${user.role}, ativo: ${user.ativo}`)
 
-      // Verificar se a coleção existe
-      const collections = await db.listCollections().toArray()
-      const hasUsersCollection = collections.some((col) => col.name === "usuarios")
+    if (!user.ativo) {
+      console.log(`Auth Service: Usuário inativo: ${username}`)
+      return { success: false, message: "Usuário inativo" }
+    }
 
-      if (!hasUsersCollection) {
-        console.error("Auth Service: Coleção 'usuarios' não existe")
-        return { success: false, message: "Erro de configuração do servidor" }
-      }
+    // Verificar a senha
+    console.log(`Auth Service: Verificando senha para: ${username}`)
+    const isPasswordValid = await bcrypt.compare(password, user.password)
 
-      // Buscar o usuário
-      const user = await usersCollection.findOne({ username })
+    if (!isPasswordValid) {
+      console.log(`Auth Service: Senha incorreta para: ${username}`)
+      return { success: false, message: "Senha incorreta" }
+    }
 
-      if (!user) {
-        console.log(`Auth Service: Usuário não encontrado: ${username}`)
-        return { success: false, message: "Usuário não encontrado" }
-      }
+    console.log(`Auth Service: Senha válida para: ${username}, gerando token JWT`)
 
-      console.log(`Auth Service: Usuário encontrado: ${username}, role: ${user.role}, ativo: ${user.ativo}`)
+    // Gerar token JWT
+    const token = await signJWT({
+      id: user.id.toString(),
+      username: user.username,
+      nome: user.nome || "Usuário",
+      email: user.email || "",
+      role: user.role,
+      ativo: user.ativo,
+    })
 
-      if (!user.ativo) {
-        console.log(`Auth Service: Usuário inativo: ${username}`)
-        return { success: false, message: "Usuário inativo" }
-      }
+    // Definir o token nos cookies
+    await setJwtCookie(token)
 
-      // Verificar a senha
-      console.log(`Auth Service: Verificando senha para: ${username}`)
-      const isPasswordValid = await bcrypt.compare(password, user.password)
+    console.log(`Auth Service: Login bem-sucedido para: ${username}`)
 
-      if (!isPasswordValid) {
-        console.log(`Auth Service: Senha incorreta para: ${username}`)
-        return { success: false, message: "Senha incorreta" }
-      }
-
-      console.log(`Auth Service: Senha válida para: ${username}, gerando token JWT`)
-
-      // Gerar token JWT
-      const token = await signJWT({
-        id: user._id.toString(),
+    return {
+      success: true,
+      user: {
+        id: user.id.toString(),
         username: user.username,
         nome: user.nome || "Usuário",
         email: user.email || "",
         role: user.role,
         ativo: user.ativo,
-      })
-
-      // Definir o token nos cookies
-      await setJwtCookie(token)
-
-      console.log(`Auth Service: Login bem-sucedido para: ${username}`)
-
-      return {
-        success: true,
-        user: {
-          id: user._id.toString(),
-          username: user.username,
-          nome: user.nome || "Usuário",
-          email: user.email || "",
-          role: user.role,
-          ativo: user.ativo,
-        },
-      }
-    } finally {
-      await client.close()
-      console.log("Auth Service: Conexão com o MongoDB fechada")
+      },
     }
   } catch (error) {
     console.error("Auth Service: Erro ao autenticar usuário:", error)
@@ -161,18 +146,40 @@ export async function removeJwtCookie() {
   cookieStore.delete("auth-token")
 }
 
-// Função para inicializar usuários
+// Função para inicializar usuários adaptada para PostgreSQL
 export async function initializeUsers() {
   try {
     console.log("Inicializando usuários...")
 
-    const client = new MongoClient(uri)
-    await client.connect()
-    const db = client.db(dbName)
-    const usersCollection = db.collection("usuarios")
+    // Verificar se a tabela existe
+    const tablesResult = await query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'usuarios'
+      )
+    `)
+
+    const tableExists = tablesResult.rows[0].exists
+    if (!tableExists) {
+      console.log("Tabela 'usuarios' não existe, criando...")
+      await query(`
+        CREATE TABLE IF NOT EXISTS usuarios (
+          id SERIAL PRIMARY KEY,
+          username VARCHAR(100) UNIQUE NOT NULL,
+          password VARCHAR(255) NOT NULL,
+          nome VARCHAR(255) NOT NULL,
+          email VARCHAR(255),
+          role VARCHAR(50) NOT NULL,
+          ativo BOOLEAN DEFAULT true,
+          data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+    }
 
     // Verificar se existe algum usuário
-    const count = await usersCollection.countDocuments()
+    const countResult = await query("SELECT COUNT(*) FROM usuarios")
+    const count = Number.parseInt(countResult.rows[0].count)
     console.log(`Número de usuários encontrados: ${count}`)
 
     if (count === 0) {
@@ -190,24 +197,22 @@ export async function initializeUsers() {
       console.log(`Criando usuário admin: ${adminUsername}`)
       const hashedPassword = await bcrypt.hash(adminPassword, 10)
 
-      await usersCollection.insertOne({
-        username: adminUsername,
-        password: hashedPassword,
-        nome: "Administrador",
-        email: "admin@prestaconta.com",
-        role: "admin",
-        ativo: true,
-        dataCriacao: new Date(),
-      })
+      await query(
+        `INSERT INTO usuarios (username, password, nome, email, role, ativo)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [adminUsername, hashedPassword, "Administrador", "admin@prestaconta.com", "admin", true],
+      )
 
       console.log("Usuário admin padrão criado com sucesso!")
 
       // Verificar se o usuário admin foi criado corretamente
-      const adminUser = await usersCollection.findOne({ username: adminUsername })
-      if (adminUser) {
+      const adminResult = await query("SELECT * FROM usuarios WHERE username = $1", [adminUsername])
+
+      if (adminResult.rowCount > 0) {
+        const adminUser = adminResult.rows[0]
         console.log("Verificação: Usuário admin existe no banco de dados")
         console.log({
-          id: adminUser._id,
+          id: adminUser.id,
           username: adminUser.username,
           role: adminUser.role,
           ativo: adminUser.ativo,
@@ -226,9 +231,9 @@ export async function initializeUsers() {
         return
       }
 
-      const adminUser = await usersCollection.findOne({ username: adminUsername })
+      const adminResult = await query("SELECT * FROM usuarios WHERE username = $1", [adminUsername])
 
-      if (!adminUser) {
+      if (adminResult.rowCount === 0) {
         console.log(`Usuário admin ${adminUsername} não encontrado, criando...`)
 
         const adminPassword = process.env.NEXT_PUBLIC_SENHA_LOGIN
@@ -240,23 +245,17 @@ export async function initializeUsers() {
 
         const hashedPassword = await bcrypt.hash(adminPassword, 10)
 
-        await usersCollection.insertOne({
-          username: adminUsername,
-          password: hashedPassword,
-          nome: "Administrador",
-          email: "admin@prestaconta.com",
-          role: "admin",
-          ativo: true,
-          dataCriacao: new Date(),
-        })
+        await query(
+          `INSERT INTO usuarios (username, password, nome, email, role, ativo)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [adminUsername, hashedPassword, "Administrador", "admin@prestaconta.com", "admin", true],
+        )
 
         console.log("Usuário admin padrão criado com sucesso!")
       } else {
         console.log(`Usuário admin ${adminUsername} já existe`)
       }
     }
-
-    await client.close()
   } catch (error) {
     console.error("Erro ao inicializar usuários:", error)
   }
@@ -350,15 +349,12 @@ export async function hashPassword(password: string) {
 
 // Função para verificar se um usuário existe
 export async function userExists(username: string) {
-  const client = new MongoClient(uri)
   try {
-    await client.connect()
-    const db = client.db(dbName)
-    const usersCollection = db.collection("usuarios")
-    const user = await usersCollection.findOne({ username })
-    return !!user
-  } finally {
-    await client.close()
+    const result = await query("SELECT EXISTS(SELECT 1 FROM usuarios WHERE username = $1)", [username])
+    return result.rows[0].exists
+  } catch (error) {
+    console.error("Erro ao verificar se usuário existe:", error)
+    return false
   }
 }
 
@@ -370,15 +366,10 @@ export async function createUser(userData: {
   email: string
   role: string
 }) {
-  const client = new MongoClient(uri)
   try {
-    await client.connect()
-    const db = client.db(dbName)
-    const usersCollection = db.collection("usuarios")
-
     // Verificar se o usuário já existe
-    const existingUser = await usersCollection.findOne({ username: userData.username })
-    if (existingUser) {
+    const exists = await userExists(userData.username)
+    if (exists) {
       return { success: false, message: "Usuário já existe" }
     }
 
@@ -386,19 +377,20 @@ export async function createUser(userData: {
     const hashedPassword = await hashPassword(userData.password)
 
     // Criar o usuário
-    const result = await usersCollection.insertOne({
-      ...userData,
-      password: hashedPassword,
-      ativo: true,
-      createdAt: new Date(),
-    })
+    const result = await query(
+      `INSERT INTO usuarios (username, password, nome, email, role, ativo)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [userData.username, hashedPassword, userData.nome, userData.email, userData.role, true],
+    )
 
     return {
       success: true,
-      userId: result.insertedId.toString(),
+      userId: result.rows[0].id.toString(),
     }
-  } finally {
-    await client.close()
+  } catch (error) {
+    console.error("Erro ao criar usuário:", error)
+    return { success: false, message: "Erro ao criar usuário" }
   }
 }
 
@@ -413,100 +405,125 @@ export async function updateUser(
     password?: string
   },
 ) {
-  const client = new MongoClient(uri)
   try {
-    await client.connect()
-    const db = client.db(dbName)
-    const usersCollection = db.collection("usuarios")
+    // Preparar os campos para atualização
+    const updates = []
+    const values = []
+    let paramIndex = 1
 
-    const updateData: any = { ...userData }
-
-    // Se a senha foi fornecida, hash ela
-    if (userData.password) {
-      updateData.password = await hashPassword(userData.password)
+    if (userData.nome) {
+      updates.push(`nome = $${paramIndex}`)
+      values.push(userData.nome)
+      paramIndex++
     }
+
+    if (userData.email) {
+      updates.push(`email = $${paramIndex}`)
+      values.push(userData.email)
+      paramIndex++
+    }
+
+    if (userData.role) {
+      updates.push(`role = $${paramIndex}`)
+      values.push(userData.role)
+      paramIndex++
+    }
+
+    if (userData.ativo !== undefined) {
+      updates.push(`ativo = $${paramIndex}`)
+      values.push(userData.ativo)
+      paramIndex++
+    }
+
+    if (userData.password) {
+      const hashedPassword = await hashPassword(userData.password)
+      updates.push(`password = $${paramIndex}`)
+      values.push(hashedPassword)
+      paramIndex++
+    }
+
+    if (updates.length === 0) {
+      return { success: true, message: "Nenhuma alteração feita" }
+    }
+
+    // Adicionar o ID ao final dos valores
+    values.push(Number.parseInt(id))
 
     // Atualizar o usuário
-    const result = await usersCollection.updateOne({ _id: new ObjectId(id) }, { $set: updateData })
+    const result = await query(
+      `UPDATE usuarios
+       SET ${updates.join(", ")}
+       WHERE id = $${paramIndex}`,
+      values,
+    )
 
     return {
-      success: result.modifiedCount > 0,
-      message: result.modifiedCount > 0 ? "Usuário atualizado com sucesso" : "Nenhuma alteração feita",
+      success: result.rowCount > 0,
+      message: result.rowCount > 0 ? "Usuário atualizado com sucesso" : "Nenhuma alteração feita",
     }
-  } finally {
-    await client.close()
+  } catch (error) {
+    console.error("Erro ao atualizar usuário:", error)
+    return { success: false, message: "Erro ao atualizar usuário" }
   }
 }
 
 // Função para obter todos os usuários
 export async function getAllUsers() {
-  const client = new MongoClient(uri)
   try {
-    await client.connect()
-    const db = client.db(dbName)
-    const usersCollection = db.collection("usuarios")
-    const users = await usersCollection.find({}).toArray()
+    const result = await query("SELECT id, username, nome, email, role, ativo, data_criacao FROM usuarios")
 
-    return users.map((user) => {
-      const { password, ...userWithoutPassword } = user
-      return {
-        ...userWithoutPassword,
-        id: user._id.toString(),
-      }
-    })
-  } finally {
-    await client.close()
+    return result.rows.map((user) => ({
+      ...user,
+      id: user.id.toString(),
+    }))
+  } catch (error) {
+    console.error("Erro ao obter todos os usuários:", error)
+    return []
   }
 }
 
-// Função para obter um usuário pelo ID
+// Função para obter um usuário por ID
 export async function getUserById(id: string) {
-  const client = new MongoClient(uri)
   try {
-    await client.connect()
-    const db = client.db(dbName)
-    const usersCollection = db.collection("usuarios")
-    const user = await usersCollection.findOne({ _id: new ObjectId(id) })
+    const result = await query(
+      "SELECT id, username, nome, email, role, ativo, data_criacao FROM usuarios WHERE id = $1",
+      [Number.parseInt(id)],
+    )
 
-    if (!user) {
+    if (result.rowCount === 0) {
       return null
     }
 
-    const { password, ...userWithoutPassword } = user
+    const user = result.rows[0]
     return {
-      ...userWithoutPassword,
-      id: user._id.toString(),
+      ...user,
+      id: user.id.toString(),
     }
-  } finally {
-    await client.close()
+  } catch (error) {
+    console.error("Erro ao obter usuário por ID:", error)
+    return null
   }
 }
 
 // Função para desativar um usuário
 export async function deactivateUser(id: string) {
-  const client = new MongoClient(uri)
   try {
-    await client.connect()
-    const db = client.db(dbName)
-    const usersCollection = db.collection("usuarios")
-    await usersCollection.updateOne({ _id: new ObjectId(id) }, { $set: { ativo: false } })
-    return true
-  } finally {
-    await client.close()
+    const result = await query("UPDATE usuarios SET ativo = false WHERE id = $1", [Number.parseInt(id)])
+    return result.rowCount > 0
+  } catch (error) {
+    console.error("Erro ao desativar usuário:", error)
+    return false
   }
 }
 
 // Função para ativar um usuário
 export async function activateUser(id: string) {
-  const client = new MongoClient(uri)
   try {
-    await client.connect()
-    const db = client.db(dbName)
-    const usersCollection = db.collection("usuarios")
-    await usersCollection.updateOne({ _id: new ObjectId(id) }, { $set: { ativo: true } })
-    return true
-  } finally {
-    await client.close()
+    const result = await query("UPDATE usuarios SET ativo = true WHERE id = $1", [Number.parseInt(id)])
+    return result.rowCount > 0
+  } catch (error) {
+    console.error("Erro ao ativar usuário:", error)
+    return false
   }
 }
 

@@ -1,58 +1,61 @@
 /**
  * Verifica se uma URL de arquivo é válida e a corrige se necessário
- * @param url URL do arquivo a ser verificada
- * @returns URL corrigida
  */
 export function ensureValidFileUrl(url: string): string {
-  // Se a URL já começa com http:// ou https://, assumimos que é uma URL externa válida
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url
+  if (!url) {
+    console.warn("[FILE-UTILS] URL vazia fornecida")
+    return ""
   }
 
-  // Se a URL começa com /api/files/, verificamos se o ID do arquivo é válido
+  console.log(`[FILE-UTILS] Processando URL: ${url}`)
+
+  // Se a URL já começa com /api/files/, está correta
   if (url.startsWith("/api/files/")) {
-    const fileId = url.replace("/api/files/", "")
-
-    // Verificar se o ID é um ObjectId válido do MongoDB (24 caracteres hexadecimais)
-    if (!/^[0-9a-fA-F]{24}$/.test(fileId)) {
-      console.error(`[FILE-UTILS] ID de arquivo inválido na URL: ${url}`)
-      // Retornar uma URL de fallback ou a URL original
-      return url
-    }
-
-    // A URL parece válida
+    console.log(`[FILE-UTILS] URL já está no formato correto: ${url}`)
     return url
   }
 
-  // Se a URL não segue nenhum dos padrões esperados, tentamos corrigir
-  // Verificar se a URL contém um ID de arquivo válido em algum lugar
-  const matches = url.match(/([0-9a-fA-F]{24})/)
-  if (matches && matches[1]) {
-    const fileId = matches[1]
-    console.log(`[FILE-UTILS] Corrigindo URL de arquivo: ${url} -> /api/files/${fileId}`)
-    return `/api/files/${fileId}`
+  // Se a URL é um ID do MongoDB (24 caracteres hexadecimais)
+  if (/^[0-9a-fA-F]{24}$/.test(url)) {
+    const correctedUrl = `/api/files/${url}`
+    console.log(`[FILE-UTILS] URL convertida de ID para: ${correctedUrl}`)
+    return correctedUrl
   }
 
-  // Se não conseguimos corrigir, retornamos a URL original
-  console.warn(`[FILE-UTILS] Não foi possível corrigir a URL de arquivo: ${url}`)
+  // Tenta extrair o ID do MongoDB da URL
+  const fileId = extractFileIdFromUrl(url)
+  if (fileId) {
+    const correctedUrl = `/api/files/${fileId}`
+    console.log(`[FILE-UTILS] ID extraído da URL: ${fileId}, URL corrigida: ${correctedUrl}`)
+    return correctedUrl
+  }
+
+  // Se não conseguiu corrigir, retorna a URL original
+  console.warn(`[FILE-UTILS] URL de arquivo potencialmente inválida: ${url}`)
   return url
 }
 
 /**
  * Extrai o ID do arquivo de uma URL
- * @param url URL do arquivo
- * @returns ID do arquivo ou null se não for possível extrair
  */
 export function extractFileIdFromUrl(url: string): string | null {
-  // Se a URL começa com /api/files/, extraímos o ID
-  if (url.startsWith("/api/files/")) {
-    return url.replace("/api/files/", "")
+  if (!url) return null
+
+  // Tenta extrair o ID do padrão /api/files/ID
+  const apiFilesMatch = url.match(/\/api\/files\/([0-9a-fA-F]{24})/)
+  if (apiFilesMatch && apiFilesMatch[1]) {
+    return apiFilesMatch[1]
   }
 
-  // Tentar encontrar um ID de arquivo válido na URL
-  const matches = url.match(/([0-9a-fA-F]{24})/)
-  if (matches && matches[1]) {
-    return matches[1]
+  // Tenta extrair o ID do padrão /files/ID
+  const filesMatch = url.match(/\/files\/([0-9a-fA-F]{24})/)
+  if (filesMatch && filesMatch[1]) {
+    return filesMatch[1]
+  }
+
+  // Verifica se a própria URL é um ID válido
+  if (/^[0-9a-fA-F]{24}$/.test(url)) {
+    return url
   }
 
   return null

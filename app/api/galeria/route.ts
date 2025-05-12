@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { findAll, insertOne } from "@/lib/mongodb-service"
+import { query } from "@/lib/postgres-service"
 
 export async function GET(request: NextRequest) {
   try {
@@ -7,19 +7,28 @@ export async function GET(request: NextRequest) {
     const ano = searchParams.get("ano")
     const mes = searchParams.get("mes")
 
-    const query: any = {}
+    let queryText = "SELECT * FROM galeria"
+    const queryParams = []
+    let paramIndex = 1
+    let hasWhere = false
 
     if (ano) {
-      query.ano = ano
+      queryText += " WHERE ano = $" + paramIndex
+      queryParams.push(ano)
+      paramIndex++
+      hasWhere = true
     }
 
     if (mes) {
-      query.mes = mes
+      queryText += hasWhere ? " AND mes = $" + paramIndex : " WHERE mes = $" + paramIndex
+      queryParams.push(mes)
+      paramIndex++
     }
 
-    const fotos = await findAll("galeria", query, { data: -1 })
+    queryText += " ORDER BY data DESC"
 
-    return NextResponse.json(fotos)
+    const result = await query(queryText, queryParams)
+    return NextResponse.json(result.rows)
   } catch (error) {
     console.error("Error fetching photos:", error)
     return NextResponse.json({ error: "Failed to fetch photos" }, { status: 500 })
@@ -31,17 +40,25 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
 
     // Extract year and month from the date
-    if (data.data) {
+    let ano = data.ano
+    let mes = data.mes
+
+    if (data.data && (!ano || !mes)) {
       const date = new Date(data.data)
-      data.ano = date.getFullYear().toString()
-      data.mes = (date.getMonth() + 1).toString()
+      ano = date.getFullYear().toString()
+      mes = (date.getMonth() + 1).toString()
     }
 
-    const result = await insertOne("galeria", data)
+    const result = await query(
+      `INSERT INTO galeria (titulo, descricao, data, url, ano, mes, file_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
+      [data.titulo, data.descricao || null, data.data, data.url, ano, mes, data.fileId || null],
+    )
 
     return NextResponse.json({
       success: true,
-      id: result.insertedId,
+      id: result.rows[0].id,
     })
   } catch (error) {
     console.error("Error creating photo record:", error)

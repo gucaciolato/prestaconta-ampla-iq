@@ -1,14 +1,18 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { deleteOne, toObjectId } from "@/lib/mongodb-service"
+import { query } from "@/lib/postgres-service"
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const id = params.id
+    const id = Number.parseInt(params.id)
+
+    if (isNaN(id)) {
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 })
+    }
 
     // Excluir o registro financeiro
-    const result = await deleteOne("financeiro", { _id: toObjectId(id) })
+    const result = await query("DELETE FROM financeiro WHERE id = $1", [id])
 
-    if (result.deletedCount === 0) {
+    if (result.rowCount === 0) {
       return NextResponse.json({ error: "Registro financeiro não encontrado" }, { status: 404 })
     }
 

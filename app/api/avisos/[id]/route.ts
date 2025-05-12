@@ -1,26 +1,27 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { deleteOne, toObjectId } from "@/lib/mongodb-service"
+import { query } from "@/lib/postgres-service"
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    // Await the params object first
-    const { id } = await params
-    
-    console.log(`[AVISOS] Iniciando exclusão do aviso com ID: ${id}`)
+    console.log(`[AVISOS] Iniciando exclusão do aviso com ID: ${params.id}`)
 
-    if (!id) {
+    if (!params.id) {
       console.error("[AVISOS] Tentativa de exclusão sem ID")
       return NextResponse.json({ error: "ID não fornecido" }, { status: 400 })
     }
 
-    // Tentando converter para ObjectId para validar o formato
-    const objectId = toObjectId(id)
-    console.log(`[AVISOS] ID convertido para ObjectId: ${objectId.toString()}`)
+    // Verificar se o ID é um número válido
+    const id = Number.parseInt(params.id)
+    if (isNaN(id)) {
+      console.error(`[AVISOS] ID inválido: ${params.id}`)
+      return NextResponse.json({ error: "ID inválido" }, { status: 400 })
+    }
 
-    const result = await deleteOne("avisos", { _id: objectId })
-    console.log(`[AVISOS] Resultado da exclusão:`, result)
+    console.log(`[AVISOS] Excluindo aviso com ID: ${id}`)
+    const result = await query("DELETE FROM avisos WHERE id = $1", [id])
+    console.log(`[AVISOS] Resultado da exclusão:`, result.rowCount)
 
-    if (result.deletedCount === 0) {
+    if (result.rowCount === 0) {
       console.warn(`[AVISOS] Aviso com ID ${id} não encontrado para exclusão`)
       return NextResponse.json({ error: "Aviso not found" }, { status: 404 })
     }

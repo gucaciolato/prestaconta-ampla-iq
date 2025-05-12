@@ -3,9 +3,57 @@ import { MongoClient, type Db, type Collection, ObjectId } from "mongodb"
 const uri = process.env.MONGODB_URI || ""
 const dbName = process.env.MONGODB_DB || "ampla"
 
-let client: MongoClient | null = null
-let db: Db | null = null
+let cachedClient: MongoClient | null = null
+let cachedDb: Db | null = null
 
+export async function connectToDatabase() {
+  if (!uri) {
+    throw new Error("MONGODB_URI não está definido nas variáveis de ambiente")
+  }
+
+  if (cachedClient && cachedDb) {
+    return { client: cachedClient, db: cachedDb }
+  }
+
+  const client = new MongoClient(uri, {
+    maxPoolSize: 20,
+    minPoolSize: 5,
+    connectTimeoutMS: 30000,
+    socketTimeoutMS: 45000,
+    serverSelectionTimeoutMS: 30000,
+  })
+
+  try {
+    await client.connect()
+    console.log("Conectado ao MongoDB com sucesso!")
+    const db = client.db(dbName)
+
+    cachedClient = client
+    cachedDb = db
+
+    return { client, db }
+  } catch (e) {
+    console.error("Erro ao conectar ao MongoDB:", e)
+    throw new Error("Erro ao conectar ao MongoDB")
+  }
+}
+
+// Função para obter a instância do banco de dados
+export async function getDatabase(): Promise<Db> {
+  if (cachedDb) {
+    return cachedDb
+  }
+
+  const { db } = await connectToDatabase()
+  return db
+}
+
+// Alias para getDatabase para compatibilidade
+export async function getDb(): Promise<Db> {
+  return getDatabase()
+}
+
+// Função para converter string para ObjectId
 export function toObjectId(id: string) {
   try {
     return new ObjectId(id)
@@ -15,36 +63,10 @@ export function toObjectId(id: string) {
   }
 }
 
-// Função para conectar ao MongoDB
-export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db }> {
-  try {
-    if (client && db) {
-      return { client, db }
-    }
-
-    if (!uri) {
-      throw new Error("MONGODB_URI não está definido")
-    }
-
-    console.log("Conectando ao MongoDB...")
-
-    client = new MongoClient(uri)
-    await client.connect()
-
-    db = client.db(dbName)
-    console.log(`Conectado ao banco de dados: ${dbName}`)
-
-    return { client, db }
-  } catch (error) {
-    console.error("Erro ao conectar ao MongoDB:", error)
-    throw error
-  }
-}
-
 // Função para obter uma coleção
 export async function getCollection(collectionName: string): Promise<Collection> {
   try {
-    const { db } = await connectToDatabase()
+    const db = await getDatabase()
     return db.collection(collectionName)
   } catch (error) {
     console.error(`Erro ao obter a coleção ${collectionName}:`, error)
@@ -131,28 +153,11 @@ export async function deleteOne(collectionName: string, filter: any) {
   }
 }
 
-// Função para fechar a conexão
-export async function closeConnection() {
-  try {
-    if (client) {
-      await client.close()
-      client = null
-      db = null
-      console.log("Conexão com o MongoDB fechada")
-    }
-  } catch (error) {
-    console.error("Erro ao fechar conexão com o MongoDB:", error)
-    throw error
-  }
-}
-
+// Função para inicializar o banco de dados
 export async function initializeDatabase() {
   try {
-    console.log("Inicializando banco de dados...")
-
-    const client = new MongoClient(uri)
-    await client.connect()
-    const db = client.db(dbName)
+    console.log("[MONGODB] Inicializando banco de dados...")
+    const db = await getDatabase()
 
     // Verificar se as coleções necessárias existem
     const requiredCollections = [
@@ -172,17 +177,33 @@ export async function initializeDatabase() {
 
     for (const collectionName of requiredCollections) {
       if (!existingCollections.includes(collectionName)) {
-        console.log(`Criando coleção ${collectionName}...`)
+        console.log(`[MONGODB] Criando coleção ${collectionName}...`)
         await db.createCollection(collectionName)
-        console.log(`Coleção ${collectionName} criada.`)
+        console.log(`[MONGODB] Coleção ${collectionName} criada.`)
       } else {
-        console.log(`Coleção ${collectionName} já existe.`)
+        console.log(`[MONGODB] Coleção ${collectionName} já existe.`)
       }
     }
 
-    console.log("Banco de dados inicializado com sucesso!")
+    console.log("[MONGODB] Banco de dados inicializado com sucesso!")
+    return true
   } catch (error) {
-    console.error("Erro ao inicializar banco de dados:", error)
+    console.error("[MONGODB] Erro ao inicializar banco de dados:", error)
     throw error
+  }
+}
+
+export async function checkDatabaseHealth() {
+  try {
+    const db = await getDatabase()
+    await db.command({ ping: 1 })
+    return { status: "ok", message: "Conexão com o banco de dados está ativa" }
+  } catch (error) {
+    console.error("[MONGODB] Erro ao verificar saúde do banco de dados:", error)
+    return {
+      status: "error",
+      message: "Erro na conexão com o banco de dados",
+      error: error instanceof Error ? error.message : String(error),
+    }
   }
 }
